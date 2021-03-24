@@ -1,0 +1,163 @@
+From c9f879fcec84970db1baba276f0dd13f96f47b2b Mon Sep 17 00:00:00 2001
+From: lokesh2059 <61094439+lokesh2059@users.noreply.github.com>
+Date: Wed, 24 Mar 2021 06:12:46 +0530
+Subject: [PATCH 1/6] Refactor : Following best practices for making Dockerfile
+
+Used different method to achieve the same functionality by reduced multi layering
+Addresses Issue #4
+---
+ app/Dockerfile | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/app/Dockerfile b/app/Dockerfile
+index 56cfe18..5a975ff 100644
+--- a/app/Dockerfile
++++ b/app/Dockerfile
+@@ -1,8 +1,7 @@
+ FROM python:3.8-slim
+ ENV PYTHONUNBUFFERED=1
+-RUN mkdir /var/www
+-COPY requirements.txt /var/www/
+-RUN cd /var/www && \
+-    python3 -m pip install -r requirements.txt
++WORKDIR /var/www
++COPY requirements.txt requirements.txt
++RUN python3 -m pip install -r requirements.txt
+ COPY app.py .
+ ENTRYPOINT ["gunicorn", "app:app", "--bind=0.0.0.0:8000", "--workers=4", "--log-level=debug", "--reload"]
+-- 
+2.23.3
+
+
+From b681cbb0ed0fed100de6c719f2a06e107a90ce45 Mon Sep 17 00:00:00 2001
+From: lokesh2059 <61094439+lokesh2059@users.noreply.github.com>
+Date: Wed, 24 Mar 2021 06:13:28 +0530
+Subject: [PATCH 2/6] Fix: corrected /loogin  to /login to match request URI
+
+App login did not work because it misspelled and  it corrected to match the incoming request URI
+Fixes issue #2
+---
+ app/app.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/app/app.py b/app/app.py
+index 053d5dd..540ff0e 100644
+--- a/app/app.py
++++ b/app/app.py
+@@ -20,7 +20,7 @@ except Exception as ex:
+ def index():
+     return 'Hello world!'
+ 
+-@app.route("/loogin")
++@app.route("/login")
+ def login():
+     return redirect(AUTH_URL, code=302)
+ 
+-- 
+2.23.3
+
+
+From e11533fe4fb5198988c23647f884dc2dbfe75dc1 Mon Sep 17 00:00:00 2001
+From: lokesh2059 <61094439+lokesh2059@users.noreply.github.com>
+Date: Wed, 24 Mar 2021 06:14:17 +0530
+Subject: [PATCH 3/6] Fix: Adding missing gunicorn package
+
+gunicorn package is necessary for our Python app container to work (as this is ENTRYPOINT in Dockerfile)
+Fixes issue #1
+---
+ app/requirements.txt | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/app/requirements.txt b/app/requirements.txt
+index 661157b..b3fca33 100644
+--- a/app/requirements.txt
++++ b/app/requirements.txt
+@@ -9,3 +9,4 @@ MarkupSafe==1.1.1
+ PyJWT==1.4.2
+ typing-extensions==3.7.4.3
+ Werkzeug==1.0.1
++gunicorn==20.0.4
+-- 
+2.23.3
+
+
+From 3b9951d0f718d8749eb989385c4bb821bd14da24 Mon Sep 17 00:00:00 2001
+From: lokesh2059 <61094439+lokesh2059@users.noreply.github.com>
+Date: Wed, 24 Mar 2021 06:15:51 +0530
+Subject: [PATCH 4/6] Fix: Adapting port for keycloak upstream
+
+Replacing 8090 with port 8080 (port on which  keycloak is listening on container ) to server incoming requests on Keycloak
+Fixes issue #3
+---
+ etc/nginx/nginx.conf | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/etc/nginx/nginx.conf b/etc/nginx/nginx.conf
+index 46f58e1..859a1a2 100644
+--- a/etc/nginx/nginx.conf
++++ b/etc/nginx/nginx.conf
+@@ -21,7 +21,7 @@ http {
+   keepalive_timeout 65;
+ 
+   upstream keycloak {
+-    server keycloak:8090 max_fails=3;
++    server keycloak:8080 max_fails=3;
+   }
+   upstream app {
+     server app:8000 max_fails=3;
+-- 
+2.23.3
+
+
+From 41b147db5420d571c30598f652648130407b992c Mon Sep 17 00:00:00 2001
+From: lokesh2059 <61094439+lokesh2059@users.noreply.github.com>
+Date: Wed, 24 Mar 2021 06:16:41 +0530
+Subject: [PATCH 5/6] Fix: Removing CMD and Entrypoint of python container app
+
+Removing CMD, Entrypoint in Docker compose so that it does not override the Entrypoint in the python app image serving our app
+Fixes issue #1
+---
+ docker-compose.yml | 2 --
+ 1 file changed, 2 deletions(-)
+
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 636a69e..c242778 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -26,8 +26,6 @@ services:
+     - 'TOKEN_URL=http://localhost/keycloak/realms/app/protocol/openid-connect/token'
+     - 'USERINFO_URL=http://localhost/keycloak/realms/app/protocol/openid-connect/userinfo'
+     - 'JWKS_URL=http://localhost/keycloak/realms/app/protocol/openid-connect/certs'
+-    entrypoint: ['python3']
+-    command: ['app.py']
+   keycloak:
+     image: 'jboss/keycloak:11.0.2'
+     container_name: 'keycloak'
+-- 
+2.23.3
+
+
+From 8d59e05d6292baa80627be13c78be86c55aac832 Mon Sep 17 00:00:00 2001
+From: lokesh2059 <61094439+lokesh2059@users.noreply.github.com>
+Date: Wed, 24 Mar 2021 06:18:04 +0530
+Subject: [PATCH 6/6] Build : Adding Keycloak and Postgres passwords to .env
+ file
+
+Creating .env file to store the passwords separately instead of hardcoding in Docker compose file
+Create new user keycloak admin
+---
+ .env | 2 ++
+ 1 file changed, 2 insertions(+)
+ create mode 100644 .env
+
+diff --git a/.env b/.env
+new file mode 100644
+index 0000000..8a194e8
+--- /dev/null
++++ b/.env
+@@ -0,0 +1,2 @@
++KEYCLOAK_PASSWORD=KeyCloak#123
++POSTGRES_PASSWORD=PostGres#123
+-- 
+2.23.3
+
